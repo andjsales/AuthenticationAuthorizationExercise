@@ -9,30 +9,48 @@
     </head>
 
     <body>
+
         <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-            <a class="navbar-brand" href="{{ url_for('logged_in_page', username=username) }}">Secret</a>
+            <a class="navbar-brand" href="{{ url_for('show_user', username=username) }}">Home</a>
             <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav"
                 aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
-                    {% if not user %}
+                    {% if session.user_id %}
                     <li class="nav-item">
-                        <a class="nav-link" href="/register">Register</a>
+                        <!-- In base.html -->
+                        {% if g.user %}
+                        <a class="nav-link" href="{{ url_for('add_feedback', username=g.user.username) }}">Submit
+                            Feedback</a>
+                        {% endif %}
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/logout">Logout</a>
+                    </li>
+                    {% else %}
                     <li class="nav-item">
                         <a class="nav-link" href="/login">Login</a>
                     </li>
-                    {% endif %}
-                    {% if user %}
                     <li class="nav-item">
-                        <a class="nav-link" href="/logout">Logout</a>
+                        <a class="nav-link" href="/register">Register</a>
                     </li>
                     {% endif %}
                 </ul>
             </div>
         </nav>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">
+            {{ message }}
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
         <div class="container mt-4">
             {% block content %}
             {% endblock %}

@@ -1,9 +1,9 @@
-from flask import Flask, render_template, redirect, request, session, flash, url_for
+from flask import Flask, render_template, redirect, request, session, flash, url_for, g
 from flask_sqlalchemy import SQLAlchemy
-from models import User, db, connect_db
-from forms import RegistrationForm, LoginForm
+from flask_migrate import Migrate
+from models import User, db, connect_db, Feedback
+from forms import RegistrationForm, LoginForm, FeedbackForm
 from flask_bcrypt import Bcrypt
-
 
 app = Flask(__name__)
 bcrypt = Bcrypt(app)
@@ -11,8 +11,17 @@ bcrypt = Bcrypt(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql:///authentication'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'mysecret'
-
+migrate = Migrate(app, db)
 connect_db(app)
+
+
+@app.context_processor
+def inject_user():
+    if 'user_id' in session:
+        g.user = User.query.get(session['user_id'])
+    else:
+        g.user = None
+    return dict(user=g.user)
 
 
 @app.route('/')
@@ -25,7 +34,7 @@ def show_register_form():
     """
     - show registration form 
     """
-    form = RegistrationForm()  # Instantiate your registration form
+    form = RegistrationForm()
     return render_template('register.html', form=form)
 
 
@@ -71,20 +80,101 @@ def process_login_form():
         user = User.authenticate(username, password)
         if user:
             session['user_id'] = user.id
-            return redirect(url_for('logged_in_page', username=username))
+            return redirect(url_for('show_user', username=username))
         else:
             form.username.errors = ['Invalid username/password']
     return render_template('login.html', form=form)
 
 
 @app.route('/users/<string:username>')
-def logged_in_page(username):
-    user = None
-    username = None
-    if 'user_id' in session:
-        user = User.query.get(session['user_id'])
-        username = user.username
-    return render_template('secret.html', user=user, username=username)
+def show_user(username):
+    if 'user_id' not in session:
+        flash('You must be logged in to view this page.', 'danger')
+        return redirect('/login')
+
+    logged_in_user = User.query.get(session['user_id'])
+
+    if logged_in_user.username != username:
+        flash('You are not authorized to view this page.', 'danger')
+        return redirect('/login')
+
+    feedback = Feedback.query.filter_by(user_id=logged_in_user.id).all()
+
+    return render_template('secret.html', user=logged_in_user, feedback=feedback, username=logged_in_user.username)
+
+
+@app.route('/users/<string:username>/delete', methods=['POST'])
+def delete_user(username):
+    if 'username' not in session or username != session['username']:
+        flash('You are not authorized to perform this action.', 'danger')
+        return redirect('/login')
+    user = User.query.filter_by(username=username).first_or_404()
+    Feedback.query.filter_by(username=username).delete()
+    db.session.delete(user)
+    db.session.commit()
+
+    session.pop('username', None)
+    flash('Your account and all associated feedback have been deleted.', 'success')
+    return redirect(url_for('homepage'))
+
+
+@app.route('/users/<string:username>/feedback/add', methods=['GET', 'POST'])
+def add_feedback(username):
+    if 'user_id' not in session:
+        flash('You must be logged in to add feedback.', 'danger')
+        return redirect(url_for('show_login_form'))
+
+    logged_in_user = User.query.get(session['user_id'])
+    if logged_in_user.username != username:
+        flash('You are not authorized to add feedback for this user.', 'danger')
+        return redirect(url_for('show_login_form'))
+
+    form = FeedbackForm()
+    if form.validate_on_submit():
+        new_feedback = Feedback(
+            title=form.title.data,
+            content=form.content.data,
+            user_id=logged_in_user.id
+        )
+        db.session.add(new_feedback)
+        db.session.commit()
+        flash('Feedback added!', 'success')
+        return redirect(url_for('add_feedback', username=logged_in_user.username))
+    return render_template('add_feedback.html', form=form, username=username)
+
+
+@app.route('/feedback/<int:feedback_id>/update', methods=['GET', 'POST'])
+def update_feedback(feedback_id):
+    feedback = Feedback.query.get_or_404(feedback_id)
+
+    if 'username' not in session or feedback.username != session['username']:
+        flash('You do not have permission to edit this feedback.', 'danger')
+        return redirect(url_for('homepage'))
+
+    form = FeedbackForm(obj=feedback)
+
+    if form.validate_on_submit():
+        feedback.title = form.title.data
+        feedback.content = form.content.data
+        db.session.commit()
+        flash('Feedback updated!', 'success')
+        return redirect(url_for('show_user', username=session['username']))
+
+    return render_template('update_feedback.html', form=form)
+
+
+@app.route('/feedback/<int:feedback_id>/delete', methods=['POST'])
+def delete_feedback(feedback_id):
+    feedback = Feedback.query.get_or_404(feedback_id)
+
+    if 'username' not in session or feedback.username != session['username']:
+        flash('You do not have permission to delete this feedback.', 'danger')
+        return redirect(url_for('homepage'))
+
+    db.session.delete(feedback)
+    db.session.commit()
+    flash('Feedback deleted!', 'success')
+    return redirect(url_for('show_user', username=session['username']))
 
 
 @app.route('/logout')
@@ -96,6 +186,5 @@ def logout_user():
 
 if __name__ == '__main__':
     with app.app_context():
-        db.drop_all()
         db.create_all()
     app.run(debug=True)

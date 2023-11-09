@@ -19,3 +19,9 @@ class LoginForm(FlaskForm):
                            InputRequired(), Length(max=20)])
     password = PasswordField('Password', validators=[InputRequired()])
     submit = SubmitField('Login')  # Make sure this line is present
+
+
+class FeedbackForm(FlaskForm):
+    title = StringField("Title", validators=[Length(max=30)])
+    content = StringField("Content", validators=[InputRequired()])
+    submit = SubmitField('Submit')
